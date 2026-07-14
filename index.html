@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Shadow Clone Jutsu</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0d0d0d;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: white;
+      font-family: sans-serif;
+    }
+    .video-container {
+      position: relative;
+      width: 640px;
+      height: 480px;
+    }
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 640px;
+      height: 480px;
+    }
+    video {
+      transform: scaleX(-1); /* mirror, feels natural */
+    }
+    canvas {
+      transform: scaleX(-1);
+    }
+  </style>
+</head>
+<body>
+  <h1>Shadow Clone Jutsu 🍥</h1>
+  <div class="video-container">
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="output"></canvas>
+  </div>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
