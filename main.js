@@ -36,7 +36,7 @@ async function setupWebcam() {
   });
 }
 
-// Main detection loop
+
 function detectLoop() {
   const results = handLandmarker.detectForVideo(video, performance.now());
 
@@ -45,12 +45,47 @@ function detectLoop() {
   if (results.landmarks && results.landmarks.length > 0) {
     for (const hand of results.landmarks) {
       drawHand(hand);
+
+      const gesture = classifyGesture(hand);
+      displayGesture(gesture);
     }
+  } else {
+    displayGesture('No hand detected');
   }
 
   requestAnimationFrame(detectLoop);
 }
 
+function displayGesture(text) {
+  const label = document.getElementById('gesture-label');
+  label.textContent = text;
+}
+
+
+function getExtendedFingers(landmarks) {
+  const fingers = {
+    index: landmarks[8].y < landmarks[6].y,
+    middle: landmarks[12].y < landmarks[10].y,
+    ring: landmarks[16].y < landmarks[14].y,
+    pinky: landmarks[20].y < landmarks[18].y,
+  };
+
+  // Thumb is different — check x distance from palm instead of y
+  // (works reasonably for a mirrored front-facing camera)
+  const thumbExtended = Math.abs(landmarks[4].x - landmarks[0].x) > Math.abs(landmarks[3].x - landmarks[0].x);
+  fingers.thumb = thumbExtended;
+
+  return fingers;
+}
+
+function classifyGesture(landmarks) {
+  const fingers = getExtendedFingers(landmarks);
+  const extendedCount = Object.values(fingers).filter(Boolean).length;
+
+  if (extendedCount >= 4) return 'Open Palm';
+  if (extendedCount === 0) return 'Fist';
+  return 'Unknown';
+}
 // Draw dots on each landmark, just to see it working
 function drawHand(landmarks) {
   ctx.fillStyle = '#ff7a00';
