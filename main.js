@@ -5,6 +5,10 @@ const canvas = document.getElementById('output');
 const ctx = canvas.getContext('2d');
 
 let handLandmarker;
+let currentGesture = 'Unknown';
+let gestureStartTime = null;
+let confirmedGesture = null;
+const HOLD_DURATION = 600; // milliseconds
 
 // Load the hand detection model
 async function setupHandLandmarker() {
@@ -37,23 +41,61 @@ async function setupWebcam() {
 }
 
 
+
+function updateGestureStability(gesture) {
+  const now = performance.now();
+
+  if (gesture !== currentGesture) {
+    // gesture changed — reset the timer
+    currentGesture = gesture;
+    gestureStartTime = now;
+    confirmedGesture = null;
+    return null;
+  }
+
+  // same gesture as last frame — check how long it's been held
+  const heldFor = now - gestureStartTime;
+
+  if (heldFor >= HOLD_DURATION && confirmedGesture !== gesture) {
+    confirmedGesture = gesture;
+    return gesture; // newly confirmed!
+  }
+
+  return null; // still holding, not confirmed yet
+}
+
 function detectLoop() {
   const results = handLandmarker.detectForVideo(video, performance.now());
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   if (results.landmarks && results.landmarks.length > 0) {
-    for (const hand of results.landmarks) {
-      drawHand(hand);
+    const hand = results.landmarks[0]; // just track one hand for now
+    drawHand(hand);
 
-      const gesture = classifyGesture(hand);
-      displayGesture(gesture);
+    const gesture = classifyGesture(hand);
+    displayGesture(gesture);
+
+    const newlyConfirmed = updateGestureStability(gesture);
+    if (newlyConfirmed) {
+      console.log('Confirmed gesture:', newlyConfirmed);
+      onGestureConfirmed(newlyConfirmed);
     }
   } else {
     displayGesture('No hand detected');
+    updateGestureStability('Unknown'); // reset stability when hand leaves frame
   }
 
   requestAnimationFrame(detectLoop);
+}
+
+function onGestureConfirmed(gesture) {
+  // this is where effects will trigger — placeholder for now
+  const label = document.getElementById('gesture-label');
+  label.style.color = '#00ff88';
+  setTimeout(() => {
+    label.style.color = '#ff7a00';
+  }, 300);
 }
 
 function displayGesture(text) {
@@ -84,6 +126,11 @@ function classifyGesture(landmarks) {
 
   if (extendedCount >= 4) return 'Open Palm';
   if (extendedCount === 0) return 'Fist';
+
+  if (fingers.index && fingers.middle && !fingers.ring && !fingers.pinky) {
+    return 'Tiger Seal';
+  }
+
   return 'Unknown';
 }
 // Draw dots on each landmark, just to see it working
