@@ -3,12 +3,65 @@ import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 const video = document.getElementById('webcam');
 const canvas = document.getElementById('output');
 const ctx = canvas.getContext('2d');
+const frameBuffer = [];
+const CAPTURE_INTERVAL = 100; // capture a snapshot every 100ms
+const BUFFER_LIFESPAN = 3000; // discard snapshots older than 3 seconds
+const HOLD_DURATION = 600; // milliseconds
+const CLONE_MODE_DURATION = 6000; // effect lasts 6 seconds
+const CLONE_DELAYS = [300, 600, 900]; // ms behind real-time, one per clone
 
+let lastCaptureTime = 0;
 let handLandmarker;
 let currentGesture = 'Unknown';
 let gestureStartTime = null;
 let confirmedGesture = null;
-const HOLD_DURATION = 600; // milliseconds
+let cloneModeActive = false;
+let cloneModeEndTime = 0;
+
+
+async function captureFrame(now) {
+  if (now - lastCaptureTime < CAPTURE_INTERVAL) return;
+  lastCaptureTime = now;
+
+  const bitmap = await createImageBitmap(video);
+  frameBuffer.push({ time: now, bitmap });
+
+  // Clean up old frames so memory doesn't grow forever
+  while (frameBuffer.length && now - frameBuffer[0].time > BUFFER_LIFESPAN) {
+    const old = frameBuffer.shift();
+    old.bitmap.close(); // releases the image from memory
+  }
+}
+
+function findClosestFrame(targetTime) {
+  let closest = null;
+  let smallestDiff = Infinity;
+
+  for (const frame of frameBuffer) {
+    const diff = Math.abs(frame.time - targetTime);
+    if (diff < smallestDiff) {
+      smallestDiff = diff;
+      closest = frame;
+    }
+  }
+
+  return closest;
+}
+
+function drawClones(now) {
+  const offsets = [-180, 180, -360]; // horizontal pixel offsets per clone
+
+  CLONE_DELAYS.forEach((delay, i) => {
+    const targetTime = now - delay;
+    const frame = findClosestFrame(targetTime);
+    if (!frame) return;
+
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.drawImage(frame.bitmap, offsets[i], 0, canvas.width, canvas.height);
+    ctx.restore();
+  });
+}
 
 // Load the hand detection model
 async function setupHandLandmarker() {
@@ -65,12 +118,23 @@ function updateGestureStability(gesture) {
 }
 
 function detectLoop() {
-  const results = handLandmarker.detectForVideo(video, performance.now());
+  const now = performance.now();
+  const results = handLandmarker.detectForVideo(video, now);
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  captureFrame(now); // keep recording, always, regardless of clone mode
+
+  if (cloneModeActive) {
+    if (now > cloneModeEndTime) {
+      cloneModeActive = false;
+    } else {
+      drawClones(now);
+    }
+  }
+
   if (results.landmarks && results.landmarks.length > 0) {
-    const hand = results.landmarks[0]; // just track one hand for now
+    const hand = results.landmarks[0];
     drawHand(hand);
 
     const gesture = classifyGesture(hand);
@@ -78,24 +142,28 @@ function detectLoop() {
 
     const newlyConfirmed = updateGestureStability(gesture);
     if (newlyConfirmed) {
-      console.log('Confirmed gesture:', newlyConfirmed);
       onGestureConfirmed(newlyConfirmed);
     }
   } else {
     displayGesture('No hand detected');
-    updateGestureStability('Unknown'); // reset stability when hand leaves frame
+    updateGestureStability('Unknown');
   }
 
   requestAnimationFrame(detectLoop);
 }
 
+
 function onGestureConfirmed(gesture) {
-  // this is where effects will trigger — placeholder for now
   const label = document.getElementById('gesture-label');
   label.style.color = '#00ff88';
   setTimeout(() => {
     label.style.color = '#ff7a00';
   }, 300);
+
+  if (gesture === 'Tiger Seal') {
+    cloneModeActive = true;
+    cloneModeEndTime = performance.now() + CLONE_MODE_DURATION;
+  }
 }
 
 function displayGesture(text) {
