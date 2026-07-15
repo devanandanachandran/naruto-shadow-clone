@@ -17,6 +17,20 @@ let gestureStartTime = null;
 let confirmedGesture = null;
 let cloneModeActive = false;
 let cloneModeEndTime = 0;
+const titleScreen = document.getElementById('title-screen');
+const instructionsScreen = document.getElementById('instructions-screen');
+const liveScreen = document.getElementById('live-screen');
+
+document.getElementById('start-btn').addEventListener('click', () => {
+  titleScreen.classList.remove('active');
+  instructionsScreen.classList.add('active');
+});
+
+document.getElementById('enter-btn').addEventListener('click', async () => {
+  instructionsScreen.classList.remove('active');
+  liveScreen.classList.add('active');
+  await init(); // only start the camera + model once the user actually enters
+});
 
 
 async function captureFrame(now) {
@@ -49,7 +63,7 @@ function findClosestFrame(targetTime) {
 }
 
 function drawClones(now) {
-  const offsets = [-180, 180, -360]; // horizontal pixel offsets per clone
+  const offsets = [-180, 180, -360];
 
   CLONE_DELAYS.forEach((delay, i) => {
     const targetTime = now - delay;
@@ -57,12 +71,11 @@ function drawClones(now) {
     if (!frame) return;
 
     ctx.save();
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = 1; // fully opaque now
     ctx.drawImage(frame.bitmap, offsets[i], 0, canvas.width, canvas.height);
     ctx.restore();
   });
 }
-
 // Load the hand detection model
 async function setupHandLandmarker() {
   const vision = await FilesetResolver.forVisionTasks(
@@ -220,4 +233,3 @@ async function init() {
   detectLoop();
 }
 
-init();

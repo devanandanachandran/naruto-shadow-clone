@@ -4,22 +4,118 @@
   <meta charset="UTF-8" />
   <title>Shadow Clone Jutsu</title>
   <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
     body {
-      margin: 0;
-      background: #0d0d0d;
-      display: flex;
+      background: #0a0a0a;
+      color: white;
+      font-family: 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .screen {
+      display: none;
+      min-height: 100vh;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
-      color: white;
-      font-family: sans-serif;
+      padding: 2rem;
     }
+
+    .screen.active {
+      display: flex;
+    }
+
+    /* ---- Title screen ---- */
+    #title-screen h1 {
+      font-size: 3.5rem;
+      background: linear-gradient(90deg, #ff7a00, #ffb347);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      margin-bottom: 0.5rem;
+      letter-spacing: 2px;
+    }
+
+    #title-screen p {
+      color: #999;
+      margin-bottom: 2.5rem;
+    }
+
+    .glow-btn {
+      background: #ff7a00;
+      color: #0a0a0a;
+      border: none;
+      padding: 1rem 3rem;
+      font-size: 1.1rem;
+      font-weight: bold;
+      border-radius: 50px;
+      cursor: pointer;
+      box-shadow: 0 0 20px rgba(255, 122, 0, 0.5);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .glow-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 30px rgba(255, 122, 0, 0.8);
+    }
+
+    /* ---- Instructions screen ---- */
+    #instructions-screen {
+      max-width: 600px;
+    }
+
+    .jutsu-card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 16px;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      opacity: 0;
+      transform: translateX(-30px);
+      animation: slideIn 0.5s ease forwards;
+    }
+
+    .jutsu-card:nth-child(2) { animation-delay: 0.2s; }
+    .jutsu-card:nth-child(3) { animation-delay: 0.4s; }
+    .jutsu-card:nth-child(4) { animation-delay: 0.6s; }
+
+    @keyframes slideIn {
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    .jutsu-icon {
+      font-size: 2rem;
+      width: 60px;
+      text-align: center;
+    }
+
+    .jutsu-info h3 {
+      color: #ff7a00;
+      margin-bottom: 0.25rem;
+    }
+
+    .jutsu-info p {
+      color: #aaa;
+      font-size: 0.9rem;
+    }
+
+    /* ---- Live screen ---- */
+    #live-screen {
+      position: relative;
+    }
+
     .video-container {
       position: relative;
       width: 640px;
       height: 480px;
     }
+
     video, canvas {
       position: absolute;
       top: 0;
@@ -27,21 +123,65 @@
       width: 640px;
       height: 480px;
     }
-    video {
-      transform: scaleX(-1); /* mirror, feels natural */
-    }
-    canvas {
-      transform: scaleX(-1);
+
+    video { transform: scaleX(-1); }
+    canvas { transform: scaleX(-1); }
+
+    #gesture-label {
+      margin-top: 1rem;
+      color: #ff7a00;
+      font-size: 1.3rem;
+      font-weight: bold;
+      letter-spacing: 1px;
     }
   </style>
 </head>
 <body>
-  <h1>Shadow Clone Jutsu 🍥</h1>
-  <h2 id="gesture-label" style="color: #ff7a00;">Waiting...</h2>
-  <div class="video-container">
-    <video id="webcam" autoplay playsinline></video>
-    <canvas id="output"></canvas>
+
+  <div id="title-screen" class="screen active">
+    <h1>SHADOW CLONE JUTSU</h1>
+    <p>Real hand-sign detection, powered by your webcam</p>
+    <button class="glow-btn" id="start-btn">Begin</button>
   </div>
+
+  <div id="instructions-screen" class="screen">
+    <h2 style="color:#ff7a00; margin-bottom: 1.5rem;">Master the Seals</h2>
+
+    <div class="jutsu-card">
+      <div class="jutsu-icon">🖐️</div>
+      <div class="jutsu-info">
+        <h3>Tiger Seal — Shadow Clone</h3>
+        <p>Hold up index and middle fingers, others curled. Summon duplicate clones of yourself.</p>
+      </div>
+    </div>
+
+    <div class="jutsu-card">
+      <div class="jutsu-icon">🌀</div>
+      <div class="jutsu-info">
+        <h3>Rasengan</h3>
+        <p>Coming soon</p>
+      </div>
+    </div>
+
+    <div class="jutsu-card">
+      <div class="jutsu-icon">⚡</div>
+      <div class="jutsu-info">
+        <h3>Chidori</h3>
+        <p>Coming soon</p>
+      </div>
+    </div>
+
+    <button class="glow-btn" id="enter-btn" style="margin-top: 1.5rem;">Enter the Arena</button>
+  </div>
+
+  <div id="live-screen" class="screen">
+    <div class="video-container">
+      <video id="webcam" autoplay playsinline></video>
+      <canvas id="output"></canvas>
+    </div>
+    <h2 id="gesture-label">Waiting...</h2>
+  </div>
+
   <script type="module" src="/main.js"></script>
 </body>
 </html>
