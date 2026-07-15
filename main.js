@@ -9,6 +9,86 @@ const BUFFER_LIFESPAN = 3000; // discard snapshots older than 3 seconds
 const HOLD_DURATION = 600; // milliseconds
 const CLONE_MODE_DURATION = 6000; // effect lasts 6 seconds
 const CLONE_DELAYS = [300, 600, 900]; // ms behind real-time, one per clone
+const bgCanvas = document.getElementById('particle-bg');
+const bgCtx = bgCanvas.getContext('2d');
+bgCanvas.width = window.innerWidth;
+bgCanvas.height = window.innerHeight;
+
+const embers = Array.from({ length: 40 }, () => ({
+  x: Math.random() * bgCanvas.width,
+  y: Math.random() * bgCanvas.height,
+  radius: Math.random() * 2 + 1,
+  speed: Math.random() * 0.5 + 0.2,
+  drift: Math.random() * 0.4 - 0.2,
+  opacity: Math.random() * 0.5 + 0.2
+}));
+
+function animateEmbers() {
+  bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+
+  embers.forEach((ember) => {
+    ember.y -= ember.speed;
+    ember.x += ember.drift;
+
+    if (ember.y < 0) {
+      ember.y = bgCanvas.height;
+      ember.x = Math.random() * bgCanvas.width;
+    }
+
+    bgCtx.beginPath();
+    bgCtx.arc(ember.x, ember.y, ember.radius, 0, Math.PI * 2);
+    bgCtx.fillStyle = `rgba(255, 122, 0, ${ember.opacity})`;
+    bgCtx.fill();
+  });
+
+  requestAnimationFrame(animateEmbers);
+}
+
+animateEmbers();
+
+document.querySelectorAll('.jutsu-card').forEach((card) => {
+  card.addEventListener('mousemove', (e) => {
+    const rect = card.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+
+    const rotateX = ((y - centerY) / centerY) * -6;
+    const rotateY = ((x - centerX) / centerX) * 6;
+
+    card.style.transform = `perspective(600px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(1.03)`;
+  });
+
+  card.addEventListener('mouseleave', () => {
+    card.style.transform = 'perspective(600px) rotateX(0) rotateY(0) scale(1)';
+  });
+});
+
+function switchScreen(fromScreen, toScreen) {
+  fromScreen.style.animation = 'none';
+  toScreen.style.animation = 'none';
+
+  fromScreen.classList.remove('active');
+  toScreen.classList.add('active');
+
+  toScreen.style.clipPath = 'circle(0% at 50% 50%)';
+  toScreen.style.transition = 'clip-path 0.6s ease';
+
+  requestAnimationFrame(() => {
+    toScreen.style.clipPath = 'circle(150% at 50% 50%)';
+  });
+}
+
+document.getElementById('start-btn').addEventListener('click', () => {
+  switchScreen(titleScreen, instructionsScreen);
+});
+
+document.getElementById('enter-btn').addEventListener('click', async () => {
+  switchScreen(instructionsScreen, liveScreen);
+  await init();
+});
+
 
 let lastCaptureTime = 0;
 let handLandmarker;
@@ -62,17 +142,51 @@ function findClosestFrame(targetTime) {
   return closest;
 }
 
-function drawClones(now) {
-  const offsets = [-180, 180, -360];
+function getCropRegion(handLandmark) {
+  // Use the wrist position (landmark 0) as an anchor for where the "person" roughly is
+  const anchorX = handLandmark[0].x * canvas.width;
+  const anchorY = handLandmark[0].y * canvas.height;
+
+  const cropWidth = 260;
+  const cropHeight = 400;
+
+  // Center the crop box around the hand, biased upward (torso is above the hand)
+  const cropX = Math.max(0, Math.min(canvas.width - cropWidth, anchorX - cropWidth / 2));
+  const cropY = Math.max(0, Math.min(canvas.height - cropHeight, anchorY - cropHeight * 0.7));
+
+  return { cropX, cropY, cropWidth, cropHeight };
+}
+
+function drawClones(now, latestHandLandmark) {
+  const offsets = [-220, 220, -420];
 
   CLONE_DELAYS.forEach((delay, i) => {
     const targetTime = now - delay;
     const frame = findClosestFrame(targetTime);
-    if (!frame) return;
+    if (!frame || !latestHandLandmark) return;
+
+    const { cropX, cropY, cropWidth, cropHeight } = getCropRegion(latestHandLandmark);
+    const destX = cropX + offsets[i];
 
     ctx.save();
-    ctx.globalAlpha = 1; // fully opaque now
-    ctx.drawImage(frame.bitmap, offsets[i], 0, canvas.width, canvas.height);
+
+    // Soft chakra-blue glow around the clone
+    ctx.shadowColor = 'rgba(80, 160, 255, 0.9)';
+    ctx.shadowBlur = 25;
+    ctx.globalAlpha = 0.85;
+
+    ctx.drawImage(
+      frame.bitmap,
+      cropX, cropY, cropWidth, cropHeight,   // source crop region
+      destX, cropY, cropWidth, cropHeight    // destination position
+    );
+
+    // Blue tint overlay to sell the "chakra clone" look
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = '#4da6ff';
+    ctx.fillRect(destX, cropY, cropWidth, cropHeight);
+
     ctx.restore();
   });
 }
@@ -135,6 +249,13 @@ function detectLoop() {
   const results = handLandmarker.detectForVideo(video, now);
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (cloneModeActive) {
+  if (now > cloneModeEndTime) {
+    cloneModeActive = false;
+  } else if (results.landmarks && results.landmarks.length > 0) {
+    drawClones(now, results.landmarks[0]);
+  }
+}
 
   captureFrame(now); // keep recording, always, regardless of clone mode
 
