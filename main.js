@@ -1,3 +1,10 @@
+import { initBackground } from './three-bg.js';
+import gsap from 'gsap';
+
+initBackground();
+
+
+
 import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
 const video = document.getElementById('webcam');
@@ -9,42 +16,8 @@ const BUFFER_LIFESPAN = 3000; // discard snapshots older than 3 seconds
 const HOLD_DURATION = 600; // milliseconds
 const CLONE_MODE_DURATION = 6000; // effect lasts 6 seconds
 const CLONE_DELAYS = [300, 600, 900]; // ms behind real-time, one per clone
-const bgCanvas = document.getElementById('particle-bg');
-const bgCtx = bgCanvas.getContext('2d');
-bgCanvas.width = window.innerWidth;
-bgCanvas.height = window.innerHeight;
 
-const embers = Array.from({ length: 40 }, () => ({
-  x: Math.random() * bgCanvas.width,
-  y: Math.random() * bgCanvas.height,
-  radius: Math.random() * 2 + 1,
-  speed: Math.random() * 0.5 + 0.2,
-  drift: Math.random() * 0.4 - 0.2,
-  opacity: Math.random() * 0.5 + 0.2
-}));
 
-function animateEmbers() {
-  bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
-
-  embers.forEach((ember) => {
-    ember.y -= ember.speed;
-    ember.x += ember.drift;
-
-    if (ember.y < 0) {
-      ember.y = bgCanvas.height;
-      ember.x = Math.random() * bgCanvas.width;
-    }
-
-    bgCtx.beginPath();
-    bgCtx.arc(ember.x, ember.y, ember.radius, 0, Math.PI * 2);
-    bgCtx.fillStyle = `rgba(255, 122, 0, ${ember.opacity})`;
-    bgCtx.fill();
-  });
-
-  requestAnimationFrame(animateEmbers);
-}
-
-animateEmbers();
 
 document.querySelectorAll('.jutsu-card').forEach((card) => {
   card.addEventListener('mousemove', (e) => {
@@ -66,17 +39,32 @@ document.querySelectorAll('.jutsu-card').forEach((card) => {
 });
 
 function switchScreen(fromScreen, toScreen) {
-  fromScreen.style.animation = 'none';
-  toScreen.style.animation = 'none';
+  gsap.to(fromScreen, {
+    opacity: 0,
+    scale: 0.95,
+    duration: 0.4,
+    ease: 'power2.in',
+    onComplete: () => {
+      fromScreen.classList.remove('active');
+      toScreen.classList.add('active');
+      gsap.fromTo(
+        toScreen,
+        { opacity: 0, scale: 1.05 },
+        { opacity: 1, scale: 1, duration: 0.5, ease: 'power2.out' }
+      );
 
-  fromScreen.classList.remove('active');
-  toScreen.classList.add('active');
-
-  toScreen.style.clipPath = 'circle(0% at 50% 50%)';
-  toScreen.style.transition = 'clip-path 0.6s ease';
-
-  requestAnimationFrame(() => {
-    toScreen.style.clipPath = 'circle(150% at 50% 50%)';
+      // If entering instructions screen, stagger the jutsu cards in
+      if (toScreen.id === 'instructions-screen') {
+        gsap.from('.jutsu-card', {
+          opacity: 0,
+          x: -40,
+          duration: 0.6,
+          stagger: 0.15,
+          ease: 'power2.out',
+          delay: 0.2,
+        });
+      }
+    },
   });
 }
 
@@ -90,6 +78,8 @@ document.getElementById('enter-btn').addEventListener('click', async () => {
 });
 
 
+
+
 let lastCaptureTime = 0;
 let handLandmarker;
 let currentGesture = 'Unknown';
@@ -101,16 +91,7 @@ const titleScreen = document.getElementById('title-screen');
 const instructionsScreen = document.getElementById('instructions-screen');
 const liveScreen = document.getElementById('live-screen');
 
-document.getElementById('start-btn').addEventListener('click', () => {
-  titleScreen.classList.remove('active');
-  instructionsScreen.classList.add('active');
-});
 
-document.getElementById('enter-btn').addEventListener('click', async () => {
-  instructionsScreen.classList.remove('active');
-  liveScreen.classList.add('active');
-  await init(); // only start the camera + model once the user actually enters
-});
 
 
 async function captureFrame(now) {
@@ -259,13 +240,7 @@ function detectLoop() {
 
   captureFrame(now); // keep recording, always, regardless of clone mode
 
-  if (cloneModeActive) {
-    if (now > cloneModeEndTime) {
-      cloneModeActive = false;
-    } else {
-      drawClones(now);
-    }
-  }
+  
 
   if (results.landmarks && results.landmarks.length > 0) {
     const hand = results.landmarks[0];
