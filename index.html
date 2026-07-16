@@ -120,24 +120,57 @@
 
     
 
+#bg-video {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  z-index: -2;
+  opacity: 0.35;
+  filter: saturate(1.3) brightness(0.7);
+}
+
+#bg-video::after {
+  content: '';
+}
+
 #three-bg {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
-  z-index: 0;
+  z-index: -1;
 }
 
 .screen {
-  z-index: 1;
   position: relative;
-  background: transparent; /* let the 3D scene show through */
+  z-index: 1;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at center, transparent 0%, #0a0a0a 90%);
+  z-index: 0;
+  pointer-events: none;
 }
   </style>
 </head>
 <body>
-   <canvas id="three-bg"></canvas>
+  <video id="bg-video" autoplay muted loop playsinline>
+  <source src="https://res.cloudinary.com/vxewtpec/video/upload/v1784199428/bg-video_wahc0d.mp4" type="video/mp4" />
+</video>
+<canvas id="three-bg"></canvas>
+
+
+   
   <div id="title-screen" class="screen active">
     <h1>SHADOW CLONE JUTSU</h1>
     <p>Real hand-sign detection, powered by your webcam</p>
