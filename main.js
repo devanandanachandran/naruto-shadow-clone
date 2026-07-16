@@ -230,17 +230,15 @@ function detectLoop() {
   const results = handLandmarker.detectForVideo(video, now);
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  captureFrame(now);
+
   if (cloneModeActive) {
-  if (now > cloneModeEndTime) {
-    cloneModeActive = false;
-  } else if (results.landmarks && results.landmarks.length > 0) {
-    drawClones(now, results.landmarks[0]);
+    if (now > cloneModeEndTime) {
+      cloneModeActive = false;
+    } else if (results.landmarks && results.landmarks.length > 0) {
+      drawClones(now, results.landmarks[0]);
+    }
   }
-}
-
-  captureFrame(now); // keep recording, always, regardless of clone mode
-
-  
 
   if (results.landmarks && results.landmarks.length > 0) {
     const hand = results.landmarks[0];
@@ -253,9 +251,27 @@ function detectLoop() {
     if (newlyConfirmed) {
       onGestureConfirmed(newlyConfirmed);
     }
+
+    // Rasengan: separate check, based on stillness of an open palm
+    if (gesture === 'Open Palm') {
+      const isStill = checkPalmStillness(hand, now);
+      if (isStill && !rasenganActive) {
+        rasenganActive = true;
+        spawnRasenganParticles();
+      }
+    } else {
+      rasenganActive = false;
+      palmStillPosition = null;
+    }
+
+    if (rasenganActive) {
+      updateAndDrawRasengan(hand);
+    }
   } else {
     displayGesture('No hand detected');
     updateGestureStability('Unknown');
+    rasenganActive = false;
+    palmStillPosition = null;
   }
 
   requestAnimationFrame(detectLoop);
@@ -309,6 +325,88 @@ function classifyGesture(landmarks) {
   }
 
   return 'Unknown';
+}
+
+let palmStillStartTime = null;
+let palmStillPosition = null;
+const STILLNESS_THRESHOLD = 15; // pixels of allowed movement
+const STILLNESS_DURATION = 800; // ms of holding still to trigger
+
+function checkPalmStillness(landmarks, now) {
+  const palmX = landmarks[9].x * canvas.width; // middle knuckle, a stable palm-center point
+  const palmY = landmarks[9].y * canvas.height;
+
+  if (!palmStillPosition) {
+    palmStillPosition = { x: palmX, y: palmY };
+    palmStillStartTime = now;
+    return false;
+  }
+
+  const distance = Math.hypot(palmX - palmStillPosition.x, palmY - palmStillPosition.y);
+
+  if (distance > STILLNESS_THRESHOLD) {
+    // moved too much, reset the timer
+    palmStillPosition = { x: palmX, y: palmY };
+    palmStillStartTime = now;
+    return false;
+  }
+
+  return (now - palmStillStartTime) >= STILLNESS_DURATION;
+}
+
+let rasenganActive = false;
+let rasenganParticles = [];
+let rasenganCenter = { x: 0, y: 0 };
+
+function spawnRasenganParticles() {
+  rasenganParticles = [];
+  for (let i = 0; i < 60; i++) {
+    rasenganParticles.push({
+      angle: Math.random() * Math.PI * 2,
+      radius: Math.random() * 35 + 10,
+      speed: (Math.random() * 0.08 + 0.05) * (Math.random() < 0.5 ? 1 : -1),
+      size: Math.random() * 3 + 1.5,
+      hue: Math.random() < 0.5 ? '#4da6ff' : '#ffffff',
+    });
+  }
+}
+
+function updateAndDrawRasengan(handLandmarks) {
+  // Anchor to the current palm position every frame
+  rasenganCenter.x = handLandmarks[9].x * canvas.width;
+  rasenganCenter.y = handLandmarks[9].y * canvas.height;
+
+  ctx.save();
+
+  // Outer glow core
+  const gradient = ctx.createRadialGradient(
+    rasenganCenter.x, rasenganCenter.y, 5,
+    rasenganCenter.x, rasenganCenter.y, 40
+  );
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+  gradient.addColorStop(0.5, 'rgba(77, 166, 255, 0.6)');
+  gradient.addColorStop(1, 'rgba(77, 166, 255, 0)');
+
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(rasenganCenter.x, rasenganCenter.y, 40, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Orbiting particles
+  rasenganParticles.forEach((p) => {
+    p.angle += p.speed;
+    const x = rasenganCenter.x + Math.cos(p.angle) * p.radius;
+    const y = rasenganCenter.y + Math.sin(p.angle) * p.radius;
+
+    ctx.beginPath();
+    ctx.arc(x, y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = p.hue;
+    ctx.shadowColor = '#4da6ff';
+    ctx.shadowBlur = 8;
+    ctx.fill();
+  });
+
+  ctx.restore();
 }
 // Draw dots on each landmark, just to see it working
 function drawHand(landmarks) {
