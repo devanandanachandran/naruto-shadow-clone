@@ -1,6 +1,7 @@
-import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { HandLandmarker, ImageSegmenter, FilesetResolver } from '@mediapipe/tasks-vision';
 import { initBackground } from './three-bg.js';
 import gsap from 'gsap';
+
 
 initBackground();
 
@@ -133,6 +134,24 @@ async function setupHandLandmarker() {
   });
 }
 
+let imageSegmenter;
+
+async function setupImageSegmenter() {
+  const vision = await FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+  );
+
+  imageSegmenter = await ImageSegmenter.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite',
+      delegate: 'GPU'
+    },
+    runningMode: 'VIDEO',
+    outputCategoryMask: true,
+    outputConfidenceMasks: false
+  });
+}
+
 async function setupWebcam() {
   const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   video.srcObject = stream;
@@ -149,12 +168,63 @@ async function setupWebcam() {
 // ---------------------------------------------
 // Frame buffer (for Shadow Clone)
 // ---------------------------------------------
+const workCanvas = document.createElement('canvas');
+const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
+
+
+
+const maskData = mask.getAsUint8Array();
+const maskWidth = mask.width;
+const maskHeight = mask.height;
+
+async function createPersonCutout(now) {
+  if (!imageSegmenter) return null;
+
+  workCanvas.width = video.videoWidth;
+  workCanvas.height = video.videoHeight;
+
+  const segResult = imageSegmenter.segmentForVideo(video, now);
+  const mask = segResult.categoryMask;
+  if (!mask) return null;
+
+  const maskData = mask.getAsUint8Array();
+  const maskWidth = mask.width;
+  const maskHeight = mask.height;
+
+  workCtx.drawImage(video, 0, 0, workCanvas.width, workCanvas.height);
+  const imageData = workCtx.getImageData(0, 0, workCanvas.width, workCanvas.height);
+  const pixels = imageData.data;
+
+  for (let y = 0; y < workCanvas.height; y++) {
+    for (let x = 0; x < workCanvas.width; x++) {
+      const maskX = Math.floor((x / workCanvas.width) * maskWidth);
+      const maskY = Math.floor((y / workCanvas.height) * maskHeight);
+      const maskValue = maskData[maskY * maskWidth + maskX];
+
+      const isBackground = maskValue > 127;
+
+      if (isBackground) {
+        const pixelIndex = (y * workCanvas.width + x) * 4;
+        pixels[pixelIndex + 3] = 0;
+      }
+    }
+  }
+
+  workCtx.putImageData(imageData, 0, 0);
+  mask.close();
+
+  return await createImageBitmap(workCanvas);
+}
+
+
 async function captureFrame(now) {
   if (now - lastCaptureTime < CAPTURE_INTERVAL) return;
   lastCaptureTime = now;
 
-  const bitmap = await createImageBitmap(video);
-  frameBuffer.push({ time: now, bitmap });
+  const cutoutBitmap = await createPersonCutout(now);
+  if (!cutoutBitmap) return;
+
+  frameBuffer.push({ time: now, bitmap: cutoutBitmap });
 
   while (frameBuffer.length && now - frameBuffer[0].time > BUFFER_LIFESPAN) {
     const old = frameBuffer.shift();
@@ -177,46 +247,19 @@ function findClosestFrame(targetTime) {
   return closest;
 }
 
-function getCropRegion(handLandmark) {
-  const anchorX = handLandmark[0].x * canvas.width;
-  const anchorY = handLandmark[0].y * canvas.height;
 
-  const cropWidth = 260;
-  const cropHeight = 400;
 
-  const cropX = Math.max(0, Math.min(canvas.width - cropWidth, anchorX - cropWidth / 2));
-  const cropY = Math.max(0, Math.min(canvas.height - cropHeight, anchorY - cropHeight * 0.7));
-
-  return { cropX, cropY, cropWidth, cropHeight };
-}
-
-function drawClones(now, latestHandLandmark) {
+function drawClones(now) {
   const offsets = [-220, 220, -420];
 
   CLONE_DELAYS.forEach((delay, i) => {
     const targetTime = now - delay;
     const frame = findClosestFrame(targetTime);
-    if (!frame || !latestHandLandmark) return;
-
-    const { cropX, cropY, cropWidth, cropHeight } = getCropRegion(latestHandLandmark);
-    const destX = cropX + offsets[i];
+    if (!frame) return;
 
     ctx.save();
-    ctx.shadowColor = 'rgba(80, 160, 255, 0.9)';
-    ctx.shadowBlur = 25;
-    ctx.globalAlpha = 0.85;
-
-    ctx.drawImage(
-      frame.bitmap,
-      cropX, cropY, cropWidth, cropHeight,
-      destX, cropY, cropWidth, cropHeight
-    );
-
-    ctx.globalCompositeOperation = 'source-atop';
-    ctx.globalAlpha = 0.15;
-    ctx.fillStyle = '#4da6ff';
-    ctx.fillRect(destX, cropY, cropWidth, cropHeight);
-
+    ctx.globalAlpha = 0.9;
+    ctx.drawImage(frame.bitmap, offsets[i], 0, canvas.width, canvas.height);
     ctx.restore();
   });
 }
@@ -576,12 +619,12 @@ function detectLoop() {
   captureFrame(now);
 
   if (cloneModeActive) {
-    if (now > cloneModeEndTime) {
-      cloneModeActive = false;
-    } else if (results.landmarks && results.landmarks.length > 0) {
-      drawClones(now, results.landmarks[0]);
-    }
+  if (now > cloneModeEndTime) {
+    cloneModeActive = false;
+  } else {
+    drawClones(now);
   }
+}
 
   if (results.landmarks && results.landmarks.length > 0) {
     const hand = results.landmarks[0];
@@ -629,6 +672,7 @@ function detectLoop() {
 // ---------------------------------------------
 async function init() {
   await setupHandLandmarker();
+  await setupImageSegmenter();
   await setupWebcam();
   detectLoop();
 }
