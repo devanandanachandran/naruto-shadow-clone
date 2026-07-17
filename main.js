@@ -252,6 +252,16 @@ function detectLoop() {
       onGestureConfirmed(newlyConfirmed);
     }
 
+    if (gesture === 'Claw') {
+      chidoriActive = true;
+     } else {
+       chidoriActive = false;
+    }  
+
+if (chidoriActive) {
+  drawChidori(hand, now);
+}
+
     // Rasengan: separate check, based on stillness of an open palm
     if (gesture === 'Open Palm') {
       const isStill = checkPalmStillness(hand, now);
@@ -317,8 +327,10 @@ function classifyGesture(landmarks) {
   const fingers = getExtendedFingers(landmarks);
   const extendedCount = Object.values(fingers).filter(Boolean).length;
 
-  if (extendedCount >= 4) return 'Open Palm';
   if (extendedCount === 0) return 'Fist';
+
+  if (extendedCount >= 4 && isClawShape(landmarks)) return 'Claw';
+  if (extendedCount >= 4) return 'Open Palm';
 
   if (fingers.index && fingers.middle && !fingers.ring && !fingers.pinky) {
     return 'Tiger Seal';
@@ -477,6 +489,125 @@ function drawHand(landmarks) {
   }
 }
 
+// CHIDORI //
+function getHandScale(landmarks) {
+  // distance from wrist to middle knuckle — a stable per-person, per-distance size reference
+  const dx = landmarks[9].x - landmarks[0].x;
+  const dy = landmarks[9].y - landmarks[0].y;
+  return Math.hypot(dx * canvas.width, dy * canvas.height);
+}
+
+function isClawShape(landmarks) {
+  const fingers = getExtendedFingers(landmarks);
+  const extendedCount = Object.values(fingers).filter(Boolean).length;
+  if (extendedCount < 4) return false;
+
+  const scale = getHandScale(landmarks);
+  const indexTip = landmarks[8];
+  const pinkyTip = landmarks[20];
+
+  const spread = Math.hypot(
+    (indexTip.x - pinkyTip.x) * canvas.width,
+    (indexTip.y - pinkyTip.y) * canvas.height
+  );
+
+  // spread relative to hand size — scale-invariant, works whether hand is close or far from camera
+  return spread / scale > 1.35;
+}
+
+function generateBolt(x1, y1, x2, y2, displace, depth) {
+  if (depth === 0) {
+    return [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+  }
+
+  const midX = (x1 + x2) / 2 + (Math.random() - 0.5) * displace;
+  const midY = (y1 + y2) / 2 + (Math.random() - 0.5) * displace;
+
+  const left = generateBolt(x1, y1, midX, midY, displace / 2, depth - 1);
+  const right = generateBolt(midX, midY, x2, y2, displace / 2, depth - 1);
+
+  return [...left, ...right.slice(1)];
+}
+
+let chidoriActive = false;
+let chidoriBolts = [];
+let lastBoltRegenTime = 0;
+const BOLT_REGEN_INTERVAL = 70; // ms — how often bolts refresh, creates the "crackle" flicker
+
+function regenerateChidoriBolts(handLandmarks) {
+  const scale = getHandScale(handLandmarks);
+  const tipIndexes = [4, 8, 12, 16, 20]; // thumb + all fingertips as bolt origins
+  const bolts = [];
+
+  tipIndexes.forEach((idx) => {
+    const originX = handLandmarks[idx].x * canvas.width;
+    const originY = handLandmarks[idx].y * canvas.height;
+
+    // Each origin shoots 1-2 bolts outward in a random direction
+    const boltCount = Math.random() < 0.5 ? 1 : 2;
+    for (let i = 0; i < boltCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const length = scale * (0.8 + Math.random() * 0.9);
+      const endX = originX + Math.cos(angle) * length;
+      const endY = originY + Math.sin(angle) * length;
+
+      const points = generateBolt(originX, originY, endX, endY, scale * 0.4, 4);
+      bolts.push({ points, width: Math.random() * 2 + 1.5 });
+
+      // Small branch fork off a random point along the main bolt
+      if (Math.random() < 0.6) {
+        const forkStart = points[Math.floor(points.length / 2)];
+        const forkAngle = angle + (Math.random() - 0.5) * 1.5;
+        const forkLength = length * 0.4;
+        const forkEnd = {
+          x: forkStart.x + Math.cos(forkAngle) * forkLength,
+          y: forkStart.y + Math.sin(forkAngle) * forkLength,
+        };
+        const forkPoints = generateBolt(forkStart.x, forkStart.y, forkEnd.x, forkEnd.y, scale * 0.2, 2);
+        bolts.push({ points: forkPoints, width: 1 });
+      }
+    }
+  });
+
+  chidoriBolts = bolts;
+}
+
+function drawChidori(handLandmarks, now) {
+  if (now - lastBoltRegenTime > BOLT_REGEN_INTERVAL) {
+    regenerateChidoriBolts(handLandmarks);
+    lastBoltRegenTime = now;
+  }
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+
+  chidoriBolts.forEach((bolt) => {
+    // Outer glow pass
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(120, 190, 255, 0.5)';
+    ctx.lineWidth = bolt.width + 4;
+    ctx.shadowColor = '#4da6ff';
+    ctx.shadowBlur = 15;
+    bolt.points.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+
+    // Sharp white core pass
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.lineWidth = bolt.width * 0.5;
+    ctx.shadowBlur = 0;
+    bolt.points.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+  });
+
+  ctx.restore();
+}
 // Boot everything up
 async function init() {
   await setupHandLandmarker();
