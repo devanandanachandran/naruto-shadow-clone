@@ -265,8 +265,8 @@ function detectLoop() {
     }
 
     if (rasenganActive) {
-      updateAndDrawRasengan(hand);
-    }
+  updateAndDrawRasengan(hand, now);
+}
   } else {
     displayGesture('No hand detected');
     updateGestureStability('Unknown');
@@ -357,56 +357,113 @@ function checkPalmStillness(landmarks, now) {
 let rasenganActive = false;
 let rasenganParticles = [];
 let rasenganCenter = { x: 0, y: 0 };
+let rasenganScale = 0; // animates 0 -> 1 on activation
+const RASENGAN_MAX_RADIUS = 85; // much bigger than before
 
 function spawnRasenganParticles() {
   rasenganParticles = [];
-  for (let i = 0; i < 60; i++) {
-    rasenganParticles.push({
-      angle: Math.random() * Math.PI * 2,
-      radius: Math.random() * 35 + 10,
-      speed: (Math.random() * 0.08 + 0.05) * (Math.random() < 0.5 ? 1 : -1),
-      size: Math.random() * 3 + 1.5,
-      hue: Math.random() < 0.5 ? '#4da6ff' : '#ffffff',
-    });
-  }
+  const rings = [
+    { count: 30, radius: 30, speed: 0.09 },
+    { count: 35, radius: 55, speed: -0.06 },
+    { count: 40, radius: 78, speed: 0.045 },
+  ];
+
+  rings.forEach((ring) => {
+    for (let i = 0; i < ring.count; i++) {
+      rasenganParticles.push({
+        angle: (Math.PI * 2 * i) / ring.count,
+        baseRadius: ring.radius,
+        speed: ring.speed,
+        size: Math.random() * 2.5 + 1.5,
+        wobble: Math.random() * 6,
+        hue: Math.random() < 0.6 ? '#4da6ff' : '#ffffff',
+      });
+    }
+  });
+  rasenganScale = 0;
 }
 
-function updateAndDrawRasengan(handLandmarks) {
-  // Anchor to the current palm position every frame
+function updateAndDrawRasengan(handLandmarks, now) {
   rasenganCenter.x = handLandmarks[9].x * canvas.width;
   rasenganCenter.y = handLandmarks[9].y * canvas.height;
 
+  // Grow the orb smoothly to full size
+  if (rasenganScale < 1) {
+    rasenganScale = Math.min(1, rasenganScale + 0.06);
+  }
+
+  const scale = easeOutCubic(rasenganScale);
+  const radius = RASENGAN_MAX_RADIUS * scale;
+
   ctx.save();
 
-  // Outer glow core
-  const gradient = ctx.createRadialGradient(
-    rasenganCenter.x, rasenganCenter.y, 5,
-    rasenganCenter.x, rasenganCenter.y, 40
+  // ---- Outer soft glow (large, faint, extends past the sphere) ----
+  const outerGlow = ctx.createRadialGradient(
+    rasenganCenter.x, rasenganCenter.y, radius * 0.3,
+    rasenganCenter.x, rasenganCenter.y, radius * 1.8
   );
-  gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
-  gradient.addColorStop(0.5, 'rgba(77, 166, 255, 0.6)');
-  gradient.addColorStop(1, 'rgba(77, 166, 255, 0)');
-
-  ctx.fillStyle = gradient;
+  outerGlow.addColorStop(0, 'rgba(77, 166, 255, 0.35)');
+  outerGlow.addColorStop(1, 'rgba(77, 166, 255, 0)');
+  ctx.fillStyle = outerGlow;
   ctx.beginPath();
-  ctx.arc(rasenganCenter.x, rasenganCenter.y, 40, 0, Math.PI * 2);
+  ctx.arc(rasenganCenter.x, rasenganCenter.y, radius * 1.8, 0, Math.PI * 2);
   ctx.fill();
 
-  // Orbiting particles
+  // ---- Core sphere gradient (bright white center, blue mid, dark edge) ----
+  const core = ctx.createRadialGradient(
+    rasenganCenter.x, rasenganCenter.y, 0,
+    rasenganCenter.x, rasenganCenter.y, radius
+  );
+  core.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+  core.addColorStop(0.35, 'rgba(150, 210, 255, 0.85)');
+  core.addColorStop(0.7, 'rgba(60, 140, 255, 0.55)');
+  core.addColorStop(1, 'rgba(30, 90, 200, 0.15)');
+  ctx.fillStyle = core;
+  ctx.beginPath();
+  ctx.arc(rasenganCenter.x, rasenganCenter.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ---- Additive blending for everything drawn after this point ----
+  ctx.globalCompositeOperation = 'lighter';
+
+  // ---- Rotating spiral streaks (the visible "swirl" texture) ----
+  const streakCount = 4;
+  for (let i = 0; i < streakCount; i++) {
+    const streakAngle = (now * 0.0015) + (i * (Math.PI * 2 / streakCount));
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(180, 220, 255, 0.5)';
+    ctx.lineWidth = 3;
+    for (let a = 0; a < Math.PI * 1.3; a += 0.1) {
+      const r = (radius * 0.9) * (a / (Math.PI * 1.3));
+      const x = rasenganCenter.x + Math.cos(streakAngle + a * 2) * r;
+      const y = rasenganCenter.y + Math.sin(streakAngle + a * 2) * r;
+      if (a === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // ---- Orbiting particles, additive ----
   rasenganParticles.forEach((p) => {
     p.angle += p.speed;
-    const x = rasenganCenter.x + Math.cos(p.angle) * p.radius;
-    const y = rasenganCenter.y + Math.sin(p.angle) * p.radius;
+    const wobbleOffset = Math.sin(now * 0.005 + p.angle) * p.wobble;
+    const r = (p.baseRadius + wobbleOffset) * scale;
+    const x = rasenganCenter.x + Math.cos(p.angle) * r;
+    const y = rasenganCenter.y + Math.sin(p.angle) * r;
 
     ctx.beginPath();
-    ctx.arc(x, y, p.size, 0, Math.PI * 2);
+    ctx.arc(x, y, p.size * scale, 0, Math.PI * 2);
     ctx.fillStyle = p.hue;
     ctx.shadowColor = '#4da6ff';
-    ctx.shadowBlur = 8;
+    ctx.shadowBlur = 10;
     ctx.fill();
   });
 
   ctx.restore();
+}
+
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
 }
 // Draw dots on each landmark, just to see it working
 function drawHand(landmarks) {
